@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini NotebookLM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-grid"></div>
+    <main class="app-shell">
+      <section class="panel notebooks-panel">
+        <h1>Mini NotebookLM</h1>
+        <p class="muted">上传文档，按内容提问，得到带引用的答案。</p>
+
+        <form id="createNotebookForm" class="row-form">
+          <input
+            id="notebookNameInput"
+            type="text"
+            maxlength="120"
+            placeholder="新建 Notebook 名称"
+            required
+          />
+          <button type="submit">创建</button>
+        </form>
+
+        <div class="list-header">
+          <h2>Notebook 列表</h2>
+          <button id="refreshNotebooksBtn" class="ghost-btn" type="button">刷新</button>
+        </div>
+        <ul id="notebookList" class="list"></ul>
+      </section>
+
+      <section class="panel workspace-panel">
+        <div class="workspace-head">
+          <h2 id="activeNotebookTitle">请选择 Notebook</h2>
+          <span id="engineModeTag" class="tag">引擎初始化中</span>
+        </div>
+
+        <form id="uploadForm" class="block-form">
+          <label for="fileInput">上传文档（txt / md / csv / log / pdf）</label>
+          <input id="fileInput" type="file" multiple required />
+          <button type="submit">上传并索引</button>
+        </form>
+
+        <div class="list-header">
+          <h3>文档</h3>
+          <button id="refreshDocsBtn" class="ghost-btn" type="button">刷新</button>
+        </div>
+        <ul id="documentList" class="list compact"></ul>
+
+        <form id="askForm" class="block-form">
+          <label for="questionInput">问题</label>
+          <textarea
+            id="questionInput"
+            rows="4"
+            maxlength="4000"
+            placeholder="例如：把这几份材料总结成三个重点，并标明来源。"
+            required
+          ></textarea>
+          <button type="submit">提问</button>
+        </form>
+
+        <section class="answer-panel">
+          <h3>回答</h3>
+          <div id="answerOutput" class="answer-text muted">还没有回答。</div>
+          <h4>引用片段</h4>
+          <ol id="citationList" class="citation-list"></ol>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
