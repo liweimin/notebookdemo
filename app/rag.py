@@ -145,6 +145,20 @@ def _build_context(chunks: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _build_history(history: list[dict[str, str]]) -> str:
+    if not history:
+        return ""
+    window = history[-settings.chat_memory_messages :]
+    lines = []
+    for item in window:
+        role = item.get("role", "").lower().strip()
+        role_text = "用户" if role == "user" else "助手"
+        content = (item.get("content") or "").replace("\n", " ").strip()
+        if content:
+            lines.append(f"{role_text}: {content}")
+    return "\n".join(lines)
+
+
 def _local_summary(chunks: list[dict[str, Any]], prefix: str) -> str:
     summary_lines = [prefix]
     for idx, chunk in enumerate(chunks, start=1):
@@ -153,7 +167,20 @@ def _local_summary(chunks: list[dict[str, Any]], prefix: str) -> str:
     return "\n".join(summary_lines)
 
 
-def generate_answer(question: str, chunks: list[dict[str, Any]]) -> tuple[str, bool, str]:
+def chunk_stream_text(text: str, chunk_size: int = 22) -> list[str]:
+    if not text:
+        return []
+    chunks = []
+    for i in range(0, len(text), chunk_size):
+        chunks.append(text[i : i + chunk_size])
+    return chunks
+
+
+def generate_answer(
+    question: str,
+    chunks: list[dict[str, Any]],
+    history: list[dict[str, str]] | None = None,
+) -> tuple[str, bool, str]:
     if not chunks:
         return "当前笔记本没有可用内容。", True, "local"
 
@@ -177,17 +204,20 @@ def generate_answer(question: str, chunks: list[dict[str, Any]]) -> tuple[str, b
         )
 
     context = _build_context(chunks)
+    history_text = _build_history(history or [])
     system_prompt = (
         "你是一个 NotebookLM 风格的研究助手。"
         "必须只基于给定上下文回答，不要编造。"
         "回答请使用中文，并在关键结论后附上 [1] 这种引用编号。"
         "若信息不足，明确说“资料不足”。"
     )
-    user_prompt = (
-        f"问题：{question}\n\n"
-        f"可用上下文：\n{context}\n\n"
-        "请给出结构化回答（简短要点即可）。"
-    )
+    prompt_parts = []
+    if history_text:
+        prompt_parts.append(f"历史对话（供上下文延续，不可覆盖文档事实）：\n{history_text}")
+    prompt_parts.append(f"问题：{question}")
+    prompt_parts.append(f"可用上下文：\n{context}")
+    prompt_parts.append("请给出结构化回答（简短要点即可）。")
+    user_prompt = "\n\n".join(prompt_parts)
 
     try:
         completion = client.chat.completions.create(

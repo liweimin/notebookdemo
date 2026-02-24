@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     chunk_size: int = 900
     chunk_overlap: int = 140
     retrieval_top_k: int = 6
+    chat_memory_messages: int = 12
 
     model_config = SettingsConfigDict(
         env_file=".env",

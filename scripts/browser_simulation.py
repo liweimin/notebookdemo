@@ -143,7 +143,7 @@ def _run_browser_flow(
         page.fill("#questionInput", "这个系统的核心能力是什么？")
         page.click("#askForm button[type='submit']")
         page.wait_for_function(
-            "document.querySelector('#answerOutput')?.textContent && !document.querySelector('#answerOutput')?.textContent?.includes('正在检索并生成回答...')",
+            "document.querySelectorAll('#citationList li').length > 0",
             timeout=180000,
         )
         if step_delay_ms > 0:

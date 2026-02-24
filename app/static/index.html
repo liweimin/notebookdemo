@@ -42,6 +42,10 @@
           <h2 id="activeNotebookTitle">请选择 Notebook</h2>
           <span id="engineModeTag" class="tag">引擎初始化中</span>
         </div>
+        <div class="session-row">
+          <span id="sessionTag" class="tag secondary">会话未创建</span>
+          <button id="newSessionBtn" class="ghost-btn" type="button">新建会话</button>
+        </div>
 
         <form id="uploadForm" class="block-form">
           <label for="fileInput">上传文档（txt / md / csv / log / pdf）</label>
@@ -72,6 +76,8 @@
           <div id="answerOutput" class="answer-text muted">还没有回答。</div>
           <h4>引用片段</h4>
           <ol id="citationList" class="citation-list"></ol>
+          <h4>会话历史</h4>
+          <ul id="messageList" class="message-list"></ul>
         </section>
       </section>
     </main>

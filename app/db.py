@@ -46,6 +46,28 @@ def init_db() -> None:
                 FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE,
                 FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id TEXT PRIMARY KEY,
+                notebook_id TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                notebook_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                citations TEXT NOT NULL DEFAULT '[]',
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
+            );
             """
         )
 
@@ -171,4 +193,132 @@ def get_notebook_chunks(notebook_id: str) -> list[dict[str, Any]]:
     output = [dict(row) for row in rows]
     for row in output:
         row["embedding"] = json.loads(row["embedding"])
+    return output
+
+
+def create_chat_session(notebook_id: str, title: str = "") -> dict[str, Any]:
+    session_id = str(uuid.uuid4())
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_sessions (id, notebook_id, title)
+            VALUES (?, ?, ?)
+            """,
+            (session_id, notebook_id, title.strip()),
+        )
+        row = conn.execute(
+            """
+            SELECT id, notebook_id, title, created_at, updated_at
+            FROM chat_sessions
+            WHERE id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+    return dict(row)
+
+
+def list_chat_sessions(notebook_id: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, notebook_id, title, created_at, updated_at
+            FROM chat_sessions
+            WHERE notebook_id = ?
+            ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+            """,
+            (notebook_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_chat_session(session_id: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT id, notebook_id, title, created_at, updated_at
+            FROM chat_sessions
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def session_belongs_to_notebook(notebook_id: str, session_id: str) -> bool:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM chat_sessions
+            WHERE id = ? AND notebook_id = ?
+            LIMIT 1
+            """,
+            (session_id, notebook_id),
+        ).fetchone()
+    return row is not None
+
+
+def add_chat_message(
+    session_id: str,
+    notebook_id: str,
+    role: str,
+    content: str,
+    citations: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    message_id = str(uuid.uuid4())
+    citations_json = json.dumps(citations or [], ensure_ascii=False)
+    metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_messages (id, session_id, notebook_id, role, content, citations, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (message_id, session_id, notebook_id, role, content, citations_json, metadata_json),
+        )
+        conn.execute(
+            """
+            UPDATE chat_sessions
+            SET updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (session_id,),
+        )
+        row = conn.execute(
+            """
+            SELECT id, session_id, notebook_id, role, content, citations, metadata, created_at
+            FROM chat_messages
+            WHERE id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+    out = dict(row)
+    out["citations"] = json.loads(out["citations"])
+    out["metadata"] = json.loads(out["metadata"])
+    return out
+
+
+def list_chat_messages(session_id: str, limit: int = 30) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(limit, 200))
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, session_id, notebook_id, role, content, citations, metadata, created_at
+            FROM (
+                SELECT id, session_id, notebook_id, role, content, citations, metadata, created_at
+                FROM chat_messages
+                WHERE session_id = ?
+                ORDER BY datetime(created_at) DESC
+                LIMIT ?
+            ) t
+            ORDER BY datetime(created_at) ASC
+            """,
+            (session_id, safe_limit),
+        ).fetchall()
+    output = [dict(row) for row in rows]
+    for row in output:
+        row["citations"] = json.loads(row["citations"])
+        row["metadata"] = json.loads(row["metadata"])
     return output

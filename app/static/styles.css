@@ -184,6 +184,14 @@ button:hover {
   gap: 12px;
 }
 
+.session-row {
+  margin: 10px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .tag {
   border-radius: 999px;
   font-size: 12px;
@@ -192,6 +200,12 @@ button:hover {
   background: #dcefd5;
   border: 1px solid #c6e3bc;
   padding: 4px 10px;
+}
+
+.tag.secondary {
+  color: #2f4130;
+  background: #e5ebdf;
+  border-color: #d3dfc7;
 }
 
 .answer-panel {
@@ -224,6 +238,36 @@ button:hover {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
+}
+
+.message-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.message-list li {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.message-list li.user {
+  border-left: 4px solid #4d8a3b;
+}
+
+.message-list li.assistant {
+  border-left: 4px solid #2f7c2f;
+}
+
+.message-role {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
 }
 
 @media (max-width: 900px) {

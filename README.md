@@ -6,6 +6,8 @@
 - 上传文档（`txt/md/csv/log/pdf`）
 - 自动切分 + 向量检索
 - 基于文档问答并返回引用片段
+- 支持会话记忆（同 Notebook 下多轮对话）
+- 支持流式回答（SSE）
 - 可切换 LLM 提供商：`OpenAI / Gemini / Zhipu / Local`
 
 上下文延续文档（给后续编程 agent）：`AGENT_MEMORY.md`
@@ -82,10 +84,21 @@ app/
 - `GET /api/notebooks` 列出 Notebook
 - `POST /api/notebooks/{id}/documents` 上传文档
 - `GET /api/notebooks/{id}/documents` 查看文档
+- `POST /api/notebooks/{id}/sessions` 创建会话
+- `GET /api/notebooks/{id}/sessions` 列出会话
+- `GET /api/sessions/{session_id}/messages` 查看会话历史
 - `POST /api/notebooks/{id}/ask` 基于文档提问
+- `POST /api/notebooks/{id}/ask/stream` 流式提问（SSE）
 - `GET /api/llm/runtime` 查看当前 LLM 运行配置与模式
 
-## 5. 浏览器模拟测试（可视化过程）
+## 5. 自动化测试
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+## 6. 浏览器模拟测试（可视化过程）
 
 这不是纯接口测试，而是会实际打开浏览器自动操作页面（创建 Notebook、上传文档、提问）。
 

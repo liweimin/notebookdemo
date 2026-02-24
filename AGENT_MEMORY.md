@@ -15,18 +15,26 @@ This file is the minimal persistent context for future coding agents when chat c
   - document upload (txt/md/csv/log/pdf)
   - chunking + vector retrieval
   - answer generation with citations
+  - chat session memory (multi-turn per notebook)
+  - streaming answer API (SSE)
 - Multi-provider LLM runtime implemented:
   - `local`, `openai`, `gemini`, `zhipu`
   - runtime API: `GET /api/llm/runtime`
+- Frontend:
+  - stream rendering in ask flow
+  - session switch/create and message history panel
+- Automated tests:
+  - `pytest` API tests for sessions, stream endpoint, session isolation
 
 ## 3. Key Files
 - `app/main.py`: API endpoints + app wiring.
 - `app/rag.py`: extraction/chunk/retrieval/answer pipeline.
 - `app/llm_provider.py`: provider routing (key/base_url/model/backend).
 - `app/db.py`: sqlite schema + persistence.
-- `app/static/index.html`, `app/static/app.js`: UI and provider mode tag display.
+- `app/static/index.html`, `app/static/app.js`: streaming UI + session memory UX.
 - `.env.example`: runtime configuration template.
 - `scripts/browser_simulation.py`: browser E2E simulation + screenshots/report.
+- `tests/test_api_sessions_stream.py`: API regression tests.
 
 ## 4. Runtime Config Rules
 - App reads only `.env` (not `.env.example`).
@@ -73,21 +81,27 @@ Browser E2E:
 python scripts/browser_simulation.py
 ```
 
+API regression tests:
+
+```bash
+pytest -q
+```
+
 ## 7. Invariants (Do Not Break)
 - If remote provider fails, app must gracefully fallback to local mode (no crash).
 - Ask response must include citations and runtime mode fields.
 - UI engine tag should reflect provider + generation mode + embedding mode.
+- Session must be isolated per notebook (cross-notebook session_id should fail).
+- Stream endpoint must emit `meta -> token* -> done` events.
 
 ## 8. Next Priority Backlog
-1. Add streaming answer API + frontend stream rendering.
-2. Add chat session memory (multi-turn per notebook).
-3. Improve retrieval quality:
+1. Improve retrieval quality:
    - metadata filtering
    - reranking
    - hybrid retrieval (keyword + vector)
-4. Add automated tests:
-   - API tests (pytest)
-   - regression checks for fallback behavior.
+2. Add true provider token streaming (current stream is answer chunk streaming).
+3. Add chat session naming + rename endpoint.
+4. Add CI workflow to run `pytest` and browser simulation smoke checks.
 
 ## 9. Handoff Prompt Template
 When starting a new agent turn, provide:
