@@ -44,7 +44,10 @@
         </div>
         <div class="session-row">
           <span id="sessionTag" class="tag secondary">会话未创建</span>
-          <button id="newSessionBtn" class="ghost-btn" type="button">新建会话</button>
+          <div class="session-actions">
+            <button id="renameSessionBtn" class="ghost-btn" type="button">重命名</button>
+            <button id="newSessionBtn" class="ghost-btn" type="button">新建会话</button>
+          </div>
         </div>
 
         <form id="uploadForm" class="block-form">
@@ -68,6 +71,12 @@
             placeholder="例如：把这几份材料总结成三个重点，并标明来源。"
             required
           ></textarea>
+          <input
+            id="filenameFilterInput"
+            type="text"
+            maxlength="120"
+            placeholder="可选：按文件名过滤（例如 report）"
+          />
           <button type="submit">提问</button>
         </form>
 

@@ -31,7 +31,11 @@ class Settings(BaseSettings):
     chunk_size: int = 900
     chunk_overlap: int = 140
     retrieval_top_k: int = 6
+    retrieval_candidate_k: int = 24
+    retrieval_vector_weight: float = 0.68
+    retrieval_rerank_weight: float = 0.45
     chat_memory_messages: int = 12
+    session_title_auto_chars: int = 28
 
     model_config = SettingsConfigDict(
         env_file=".env",

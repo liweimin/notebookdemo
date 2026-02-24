@@ -192,6 +192,11 @@ button:hover {
   gap: 8px;
 }
 
+.session-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .tag {
   border-radius: 999px;
   font-size: 12px;

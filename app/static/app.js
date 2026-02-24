@@ -13,12 +13,15 @@ const uploadForm = document.getElementById("uploadForm");
 const fileInput = document.getElementById("fileInput");
 const askForm = document.getElementById("askForm");
 const questionInput = document.getElementById("questionInput");
+const filenameFilterInput = document.getElementById("filenameFilterInput");
 const refreshNotebooksBtn = document.getElementById("refreshNotebooksBtn");
 const refreshDocsBtn = document.getElementById("refreshDocsBtn");
 const newSessionBtn = document.getElementById("newSessionBtn");
+const renameSessionBtn = document.getElementById("renameSessionBtn");
 
 let activeNotebookId = null;
 let activeSessionId = null;
+let activeSessionTitle = "";
 let isStreaming = false;
 
 function providerLabel(provider) {
@@ -53,7 +56,8 @@ function updateSessionTag() {
     sessionTagEl.textContent = "会话未创建";
     return;
   }
-  sessionTagEl.textContent = `会话: ${activeSessionId.slice(0, 8)}`;
+  const title = activeSessionTitle || "未命名会话";
+  sessionTagEl.textContent = `会话: ${title}`;
 }
 
 async function api(path, options = {}) {
@@ -99,6 +103,7 @@ function renderNotebooks(notebooks) {
     button.addEventListener("click", async () => {
       activeNotebookId = item.id;
       activeSessionId = null;
+      activeSessionTitle = "";
       activeNotebookTitleEl.textContent = `当前：${item.name}`;
       clearAnswer();
       await loadNotebooks();
@@ -152,6 +157,7 @@ async function loadNotebooks() {
   if (!notebooks.length) {
     activeNotebookId = null;
     activeSessionId = null;
+    activeSessionTitle = "";
     activeNotebookTitleEl.textContent = "请选择 Notebook";
     updateSessionTag();
     renderNotebooks([]);
@@ -186,10 +192,16 @@ async function loadMessages() {
 async function ensureSession(forceCreate = false) {
   if (!activeNotebookId) {
     activeSessionId = null;
+    activeSessionTitle = "";
     updateSessionTag();
     return;
   }
   if (!forceCreate && activeSessionId) {
+    const sessions = await api(`/api/notebooks/${activeNotebookId}/sessions`);
+    const current = sessions.find((item) => item.id === activeSessionId);
+    if (current) {
+      activeSessionTitle = current.title || activeSessionTitle;
+    }
     updateSessionTag();
     await loadMessages();
     return;
@@ -199,6 +211,7 @@ async function ensureSession(forceCreate = false) {
     const sessions = await api(`/api/notebooks/${activeNotebookId}/sessions`);
     if (sessions.length) {
       activeSessionId = sessions[0].id;
+      activeSessionTitle = sessions[0].title || "";
       updateSessionTag();
       await loadMessages();
       return;
@@ -208,9 +221,10 @@ async function ensureSession(forceCreate = false) {
   const created = await api(`/api/notebooks/${activeNotebookId}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: "" }),
+    body: JSON.stringify({ title: "新会话" }),
   });
   activeSessionId = created.id;
+  activeSessionTitle = created.title || "";
   updateSessionTag();
   await loadMessages();
 }
@@ -235,11 +249,20 @@ function parseSseBlocks(buffer) {
   return { parsed, rest };
 }
 
-async function askWithStream(question) {
+async function askWithStream(question, filenameFilter) {
+  const payload = {
+    question,
+    session_id: activeSessionId,
+  };
+  const trimmedFilter = (filenameFilter || "").trim();
+  if (trimmedFilter) {
+    payload.filename_contains = trimmedFilter;
+  }
+
   const response = await fetch(`/api/notebooks/${activeNotebookId}/ask/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, session_id: activeSessionId }),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     let detail = "请求失败";
@@ -270,14 +293,11 @@ async function askWithStream(question) {
     parsed.forEach((item) => {
       if (!item.data) return;
       if (item.event === "token") {
-        const payload = JSON.parse(item.data);
-        answerText += payload.delta || "";
+        const tokenPayload = JSON.parse(item.data);
+        answerText += tokenPayload.delta || "";
         setStatus(answerText);
       } else if (item.event === "done") {
         finalResult = JSON.parse(item.data);
-      } else if (item.event === "error") {
-        const payload = JSON.parse(item.data);
-        throw new Error(payload.detail || "流式请求失败");
       }
     });
   }
@@ -361,9 +381,9 @@ askForm.addEventListener("submit", async (event) => {
     isStreaming = true;
     setStatus("正在检索并流式生成回答...");
     renderCitations([]);
-    const result = await askWithStream(question);
+    const result = await askWithStream(question, filenameFilterInput.value);
     activeSessionId = result.session_id || activeSessionId;
-    updateSessionTag();
+    await ensureSession(false);
     setStatus(result.answer || "资料不足。");
     renderCitations(result.citations || []);
     updateEngineTagFromAskResult(result);
@@ -384,6 +404,27 @@ newSessionBtn.addEventListener("click", async () => {
     await ensureSession(true);
     clearAnswer();
     setStatus("已创建新会话。");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+renameSessionBtn.addEventListener("click", async () => {
+  if (!activeSessionId) {
+    setStatus("没有可重命名的会话。", true);
+    return;
+  }
+  const nextTitle = window.prompt("请输入新会话名称", activeSessionTitle || "新会话");
+  if (!nextTitle) return;
+  try {
+    const renamed = await api(`/api/sessions/${activeSessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: nextTitle.trim() }),
+    });
+    activeSessionTitle = renamed.title || activeSessionTitle;
+    updateSessionTag();
+    setStatus("会话名称已更新。");
   } catch (error) {
     setStatus(error.message, true);
   }

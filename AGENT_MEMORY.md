@@ -8,12 +8,13 @@ This file is the minimal persistent context for future coding agents when chat c
   - Ask grounded questions
   - Return answers with citations
 
-## 2. Current Status (2026-02-24)
+## 2. Current Status (2026-02-25)
 - Backend: FastAPI + SQLite + local static frontend.
 - Core flow implemented:
   - notebook CRUD (basic)
   - document upload (txt/md/csv/log/pdf)
-  - chunking + vector retrieval
+  - chunking + hybrid retrieval (vector + keyword) + reranking
+  - metadata filtering for retrieval (`filename_contains`, `document_ids`)
   - answer generation with citations
   - chat session memory (multi-turn per notebook)
   - streaming answer API (SSE)
@@ -22,9 +23,13 @@ This file is the minimal persistent context for future coding agents when chat c
   - runtime API: `GET /api/llm/runtime`
 - Frontend:
   - stream rendering in ask flow
-  - session switch/create and message history panel
+  - session switch/create/rename and message history panel
+  - filename filter input for retrieval metadata filter
 - Automated tests:
   - `pytest` API tests for sessions, stream endpoint, session isolation
+  - retrieval rerank + provider-stream unit tests
+- CI:
+  - GitHub Actions workflow runs `pytest` + browser simulation smoke check
 
 ## 3. Key Files
 - `app/main.py`: API endpoints + app wiring.
@@ -35,6 +40,8 @@ This file is the minimal persistent context for future coding agents when chat c
 - `.env.example`: runtime configuration template.
 - `scripts/browser_simulation.py`: browser E2E simulation + screenshots/report.
 - `tests/test_api_sessions_stream.py`: API regression tests.
+- `tests/test_rag_hybrid_stream.py`: retrieval/rerank + provider streaming tests.
+- `.github/workflows/ci.yml`: CI pipeline.
 
 ## 4. Runtime Config Rules
 - App reads only `.env` (not `.env.example`).
@@ -93,15 +100,13 @@ pytest -q
 - UI engine tag should reflect provider + generation mode + embedding mode.
 - Session must be isolated per notebook (cross-notebook session_id should fail).
 - Stream endpoint must emit `meta -> token* -> done` events.
+- Retrieval should support filter + hybrid + rerank while preserving fallback behavior.
 
 ## 8. Next Priority Backlog
-1. Improve retrieval quality:
-   - metadata filtering
-   - reranking
-   - hybrid retrieval (keyword + vector)
-2. Add true provider token streaming (current stream is answer chunk streaming).
-3. Add chat session naming + rename endpoint.
-4. Add CI workflow to run `pytest` and browser simulation smoke checks.
+1. Add provider-native citation alignment in stream mode (token-time citation hints).
+2. Add session list UI with explicit session switcher (not just latest/default).
+3. Add retrieval diagnostics endpoint (scores, chosen chunks, filter stats).
+4. Replace deprecated FastAPI `on_event` startup with lifespan handler.
 
 ## 9. Handoff Prompt Template
 When starting a new agent turn, provide:

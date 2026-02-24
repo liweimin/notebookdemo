@@ -217,6 +217,28 @@ def create_chat_session(notebook_id: str, title: str = "") -> dict[str, Any]:
     return dict(row)
 
 
+def update_chat_session_title(session_id: str, title: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE chat_sessions
+            SET title = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (title.strip(), session_id),
+        )
+        row = conn.execute(
+            """
+            SELECT id, notebook_id, title, created_at, updated_at
+            FROM chat_sessions
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def list_chat_sessions(notebook_id: str) -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(

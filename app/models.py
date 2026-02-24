@@ -22,6 +22,10 @@ class ChatSessionCreate(BaseModel):
     title: str | None = Field(default=None, max_length=120)
 
 
+class ChatSessionRename(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+
+
 class ChatSessionOut(BaseModel):
     id: str
     notebook_id: str
@@ -44,6 +48,8 @@ class ChatMessageOut(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(min_length=2, max_length=4000)
     session_id: str | None = None
+    document_ids: list[str] | None = None
+    filename_contains: str | None = Field(default=None, max_length=120)
 
 
 class CitationOut(BaseModel):

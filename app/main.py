@@ -22,12 +22,14 @@ from app.db import (
     list_notebooks,
     notebook_exists,
     session_belongs_to_notebook,
+    update_chat_session_title,
 )
 from app.llm_provider import get_provider_runtime
 from app.models import (
     AskRequest,
     AskResponse,
     ChatMessageOut,
+    ChatSessionRename,
     ChatSessionCreate,
     ChatSessionOut,
     CitationOut,
@@ -37,11 +39,11 @@ from app.models import (
     NotebookOut,
 )
 from app.rag import (
-    chunk_stream_text,
     embed_texts,
     extract_text,
     generate_answer,
     retrieve_top_chunks,
+    stream_generate_answer,
     split_text,
 )
 
@@ -160,6 +162,17 @@ def list_sessions_api(notebook_id: str) -> list[ChatSessionOut]:
     return [ChatSessionOut(**row) for row in list_chat_sessions(notebook_id)]
 
 
+@app.patch("/api/sessions/{session_id}", response_model=ChatSessionOut)
+def rename_session_api(session_id: str, payload: ChatSessionRename) -> ChatSessionOut:
+    session = get_chat_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session 不存在。")
+    updated = update_chat_session_title(session_id, payload.title.strip())
+    if not updated:
+        raise HTTPException(status_code=404, detail="Session 不存在。")
+    return ChatSessionOut(**updated)
+
+
 @app.get("/api/sessions/{session_id}/messages", response_model=list[ChatMessageOut])
 def list_session_messages_api(session_id: str) -> list[ChatMessageOut]:
     session = get_chat_session(session_id)
@@ -173,8 +186,19 @@ def _resolve_session_id(notebook_id: str, requested_session_id: str | None) -> s
         if not session_belongs_to_notebook(notebook_id, requested_session_id):
             raise HTTPException(status_code=400, detail="Session 不属于当前 Notebook。")
         return requested_session_id
-    created = create_chat_session(notebook_id, title="默认会话")
+    created = create_chat_session(notebook_id, title="新会话")
     return created["id"]
+
+
+def _auto_name_session_if_needed(session_id: str, question: str) -> None:
+    session = get_chat_session(session_id)
+    if not session:
+        return
+    if (session.get("title") or "").strip():
+        return
+    title = question.strip()[: settings.session_title_auto_chars]
+    if title:
+        update_chat_session_title(session_id, title)
 
 
 def _build_citations(top_chunks: list[dict]) -> list[CitationOut]:
@@ -189,7 +213,7 @@ def _build_citations(top_chunks: list[dict]) -> list[CitationOut]:
     ]
 
 
-def _run_ask(notebook_id: str, payload: AskRequest) -> AskResponse:
+def _prepare_ask_context(notebook_id: str, payload: AskRequest) -> dict:
     if not notebook_exists(notebook_id):
         raise HTTPException(status_code=404, detail="Notebook 不存在。")
 
@@ -209,35 +233,44 @@ def _run_ask(notebook_id: str, payload: AskRequest) -> AskResponse:
         if msg["role"] in {"user", "assistant"}
     ]
 
+    top_chunks, retrieval_fallback, embedding_mode = retrieve_top_chunks(
+        query=payload.question,
+        chunks=chunks,
+        top_k=settings.retrieval_top_k,
+        document_ids=payload.document_ids,
+        filename_contains=payload.filename_contains,
+    )
+    if not top_chunks:
+        raise HTTPException(status_code=400, detail="过滤条件下没有可检索内容。")
     add_chat_message(
         session_id=session_id,
         notebook_id=notebook_id,
         role="user",
         content=payload.question,
     )
-
-    top_chunks, retrieval_fallback, embedding_mode = retrieve_top_chunks(
-        query=payload.question,
-        chunks=chunks,
-        top_k=settings.retrieval_top_k,
-    )
-    answer, generation_fallback, generation_mode = generate_answer(
-        question=payload.question,
-        chunks=top_chunks,
-        history=history,
-    )
+    _auto_name_session_if_needed(session_id, payload.question)
     citations = _build_citations(top_chunks)
-    response = AskResponse(
-        session_id=session_id,
-        answer=answer,
-        citations=citations,
-        used_fallback=retrieval_fallback or generation_fallback,
-        llm_provider=runtime.provider,
-        generation_mode=generation_mode,
-        embedding_mode=embedding_mode,
-        chat_model=runtime.chat_model,
-        embedding_model=runtime.embedding_model,
-    )
+    return {
+        "runtime": runtime,
+        "session_id": session_id,
+        "history": history,
+        "top_chunks": top_chunks,
+        "citations": citations,
+        "retrieval_fallback": retrieval_fallback,
+        "embedding_mode": embedding_mode,
+    }
+
+
+def _persist_assistant_message(
+    session_id: str,
+    notebook_id: str,
+    answer: str,
+    citations: list[CitationOut],
+    runtime,
+    generation_mode: str,
+    embedding_mode: str,
+    used_fallback: bool,
+) -> None:
     add_chat_message(
         session_id=session_id,
         notebook_id=notebook_id,
@@ -250,8 +283,38 @@ def _run_ask(notebook_id: str, payload: AskRequest) -> AskResponse:
             "embedding_mode": embedding_mode,
             "chat_model": runtime.chat_model,
             "embedding_model": runtime.embedding_model,
-            "used_fallback": response.used_fallback,
+            "used_fallback": used_fallback,
         },
+    )
+
+
+def _run_ask(notebook_id: str, payload: AskRequest) -> AskResponse:
+    context = _prepare_ask_context(notebook_id, payload)
+    answer, generation_fallback, generation_mode = generate_answer(
+        question=payload.question,
+        chunks=context["top_chunks"],
+        history=context["history"],
+    )
+    response = AskResponse(
+        session_id=context["session_id"],
+        answer=answer,
+        citations=context["citations"],
+        used_fallback=context["retrieval_fallback"] or generation_fallback,
+        llm_provider=context["runtime"].provider,
+        generation_mode=generation_mode,
+        embedding_mode=context["embedding_mode"],
+        chat_model=context["runtime"].chat_model,
+        embedding_model=context["runtime"].embedding_model,
+    )
+    _persist_assistant_message(
+        session_id=context["session_id"],
+        notebook_id=notebook_id,
+        answer=answer,
+        citations=context["citations"],
+        runtime=context["runtime"],
+        generation_mode=generation_mode,
+        embedding_mode=context["embedding_mode"],
+        used_fallback=response.used_fallback,
     )
     return response
 
@@ -263,25 +326,63 @@ def ask_api(notebook_id: str, payload: AskRequest) -> AskResponse:
 
 @app.post("/api/notebooks/{notebook_id}/ask/stream")
 def ask_stream_api(notebook_id: str, payload: AskRequest) -> StreamingResponse:
-    response = _run_ask(notebook_id, payload)
+    context = _prepare_ask_context(notebook_id, payload)
+    token_iter, stream_state = stream_generate_answer(
+        question=payload.question,
+        chunks=context["top_chunks"],
+        history=context["history"],
+    )
 
     def _event(event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
     def _iter_events():
+        answer_parts: list[str] = []
         yield _event(
             "meta",
             {
-                "session_id": response.session_id,
-                "llm_provider": response.llm_provider,
-                "generation_mode": response.generation_mode,
-                "embedding_mode": response.embedding_mode,
-                "chat_model": response.chat_model,
-                "embedding_model": response.embedding_model,
+                "session_id": context["session_id"],
+                "llm_provider": context["runtime"].provider,
+                "generation_mode": stream_state.get("generation_mode", "local"),
+                "embedding_mode": context["embedding_mode"],
+                "chat_model": context["runtime"].chat_model,
+                "embedding_model": context["runtime"].embedding_model,
             },
         )
-        for piece in chunk_stream_text(response.answer):
-            yield _event("token", {"delta": piece})
+        try:
+            for piece in token_iter:
+                if piece:
+                    answer_parts.append(piece)
+                    yield _event("token", {"delta": piece})
+        except Exception:
+            stream_state["used_fallback"] = True
+            stream_state["generation_mode"] = "local"
+            fallback_note = "流式生成中断，请重试。"
+            answer_parts.append(fallback_note)
+            yield _event("token", {"delta": fallback_note})
+
+        answer_text = "".join(answer_parts).strip() or "资料不足。"
+        response = AskResponse(
+            session_id=context["session_id"],
+            answer=answer_text,
+            citations=context["citations"],
+            used_fallback=context["retrieval_fallback"] or stream_state.get("used_fallback", False),
+            llm_provider=context["runtime"].provider,
+            generation_mode=stream_state.get("generation_mode", "local"),
+            embedding_mode=context["embedding_mode"],
+            chat_model=context["runtime"].chat_model,
+            embedding_model=context["runtime"].embedding_model,
+        )
+        _persist_assistant_message(
+            session_id=context["session_id"],
+            notebook_id=notebook_id,
+            answer=answer_text,
+            citations=context["citations"],
+            runtime=context["runtime"],
+            generation_mode=response.generation_mode,
+            embedding_mode=context["embedding_mode"],
+            used_fallback=response.used_fallback,
+        )
         yield _event("done", response.model_dump())
 
     return StreamingResponse(

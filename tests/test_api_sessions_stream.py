@@ -19,12 +19,18 @@ def _create_notebook(client: TestClient, name: str) -> str:
     return res.json()["id"]
 
 
-def _upload_text_doc(client: TestClient, notebook_id: str, text: str, filename: str = "doc.txt") -> None:
+def _upload_text_doc(
+    client: TestClient,
+    notebook_id: str,
+    text: str,
+    filename: str = "doc.txt",
+) -> dict:
     files = [("files", (filename, text.encode("utf-8"), "text/plain"))]
     res = client.post(f"/api/notebooks/{notebook_id}/documents", files=files)
     assert res.status_code == 200
     body = res.json()
     assert body and body[0]["chunk_count"] >= 1
+    return body[0]
 
 
 def _create_session(client: TestClient, notebook_id: str) -> str:
@@ -112,3 +118,61 @@ def test_session_isolation_between_notebooks(tmp_path: Path) -> None:
         )
         assert wrong.status_code == 400
         assert "Session 不属于当前 Notebook" in wrong.json()["detail"]
+
+
+def test_session_auto_naming_and_rename_endpoint(tmp_path: Path) -> None:
+    _setup_runtime(tmp_path)
+    with TestClient(main_module.app) as client:
+        notebook_id = _create_notebook(client, "rename")
+        _upload_text_doc(client, notebook_id, "Session naming content.")
+        session = client.post(f"/api/notebooks/{notebook_id}/sessions", json={"title": ""}).json()
+        session_id = session["id"]
+
+        ask = client.post(
+            f"/api/notebooks/{notebook_id}/ask",
+            json={"question": "这是第一轮问题，用来自动命名会话。", "session_id": session_id},
+        )
+        assert ask.status_code == 200
+
+        sessions = client.get(f"/api/notebooks/{notebook_id}/sessions")
+        assert sessions.status_code == 200
+        matched = [item for item in sessions.json() if item["id"] == session_id][0]
+        assert matched["title"] != ""
+
+        rename = client.patch(f"/api/sessions/{session_id}", json={"title": "项目讨论"})
+        assert rename.status_code == 200
+        assert rename.json()["title"] == "项目讨论"
+
+
+def test_metadata_filtering_by_filename_and_document_ids(tmp_path: Path) -> None:
+    _setup_runtime(tmp_path)
+    with TestClient(main_module.app) as client:
+        notebook_id = _create_notebook(client, "filter")
+        d1 = _upload_text_doc(client, notebook_id, "Apple report content.", filename="apple_report.txt")
+        d2 = _upload_text_doc(client, notebook_id, "Banana report content.", filename="banana_report.txt")
+        session_id = _create_session(client, notebook_id)
+
+        by_filename = client.post(
+            f"/api/notebooks/{notebook_id}/ask",
+            json={
+                "question": "总结报告内容",
+                "session_id": session_id,
+                "filename_contains": "banana",
+            },
+        )
+        assert by_filename.status_code == 200
+        for citation in by_filename.json()["citations"]:
+            assert "banana" in citation["filename"].lower()
+
+        by_doc = client.post(
+            f"/api/notebooks/{notebook_id}/ask",
+            json={
+                "question": "总结报告内容",
+                "session_id": session_id,
+                "document_ids": [d1["id"]],
+            },
+        )
+        assert by_doc.status_code == 200
+        citation_doc_ids = {item["document_id"] for item in by_doc.json()["citations"]}
+        assert citation_doc_ids == {d1["id"]}
+        assert d2["id"] not in citation_doc_ids

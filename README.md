@@ -5,9 +5,10 @@
 - 创建 Notebook
 - 上传文档（`txt/md/csv/log/pdf`）
 - 自动切分 + 向量检索
+- 混合检索（向量 + 关键词）+ rerank
 - 基于文档问答并返回引用片段
 - 支持会话记忆（同 Notebook 下多轮对话）
-- 支持流式回答（SSE）
+- 支持流式回答（SSE，provider token streaming）
 - 可切换 LLM 提供商：`OpenAI / Gemini / Zhipu / Local`
 
 上下文延续文档（给后续编程 agent）：`AGENT_MEMORY.md`
@@ -86,10 +87,16 @@ app/
 - `GET /api/notebooks/{id}/documents` 查看文档
 - `POST /api/notebooks/{id}/sessions` 创建会话
 - `GET /api/notebooks/{id}/sessions` 列出会话
+- `PATCH /api/sessions/{session_id}` 重命名会话
 - `GET /api/sessions/{session_id}/messages` 查看会话历史
 - `POST /api/notebooks/{id}/ask` 基于文档提问
 - `POST /api/notebooks/{id}/ask/stream` 流式提问（SSE）
 - `GET /api/llm/runtime` 查看当前 LLM 运行配置与模式
+
+`ask` / `ask/stream` 请求支持可选过滤字段：
+
+- `filename_contains`: 按文件名包含过滤候选文档
+- `document_ids`: 仅在指定文档 ID 范围内检索
 
 ## 5. 自动化测试
 
@@ -97,6 +104,13 @@ app/
 pip install -r requirements-dev.txt
 pytest -q
 ```
+
+检索与会话相关能力包含在测试中：
+
+- 会话隔离与多轮记忆
+- 流式接口事件完整性（`meta -> token* -> done`）
+- 元数据过滤（`filename_contains` / `document_ids`）
+- 混合检索 + rerank 行为
 
 ## 6. 浏览器模拟测试（可视化过程）
 
